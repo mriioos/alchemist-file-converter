@@ -1,0 +1,16 @@
+### Upload DOCX → PDF
+POST http://localhost:8000/convert/docx-to-pdf
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.docx"
+Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+
+< ../fixtures/sample.docx
+--boundary--
+
+### Poll task status
+GET http://localhost:8000/tasks/{{task_id}}
+
+### Download result
+GET http://localhost:8000/tasks/{{task_id}}/download

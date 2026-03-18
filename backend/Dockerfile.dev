@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+
+# Same system deps as prod — needed for full conversion testing in dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libreoffice-writer libreoffice-calc libreoffice-impress \
+    poppler-utils ghostscript \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+# Dev-only: test runner
+RUN pip install --no-cache-dir pytest pytest-asyncio httpx
+
+# Source is mounted as a volume — no COPY here
+RUN mkdir -p /tmp/conversions
+
+ENV FC_WORK_DIR=/tmp/conversions
+EXPOSE 8000
+# --reload watches for file changes via the mounted volume
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

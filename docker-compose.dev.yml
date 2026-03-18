@@ -1,0 +1,46 @@
+services:
+
+  backend:
+    container_name: 'file-converter-dev-backend'
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Mount source for --reload
+      - ./backend:/app
+      # Keep the container's compiled .pyc files separate
+      - /app/__pycache__
+    env_file:
+      - .env.config.dev
+    networks:
+      - app
+    restart: unless-stopped
+
+  frontend:
+    container_name: 'file-converter-dev-frontend'
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "${FRONTEND_PORT:-4321}:4321"
+    volumes:
+      # Mount source dirs for hot reload
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/astro.config.mjs:/app/astro.config.mjs
+      - ./frontend/tailwind.config.mjs:/app/tailwind.config.mjs
+      # Preserve the container's node_modules — do not shadow with host
+      - ./.dev/frotend/node_modules:/app/node_modules
+    env_file:
+      - .env.config.dev
+    depends_on:
+      - backend
+    networks:
+      - app
+    restart: unless-stopped
+
+networks:
+  app:
+    driver: bridge

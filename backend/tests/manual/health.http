@@ -1,0 +1,5 @@
+### Health check
+GET http://localhost:8000/health
+
+### List all available converters
+GET http://localhost:8000/converters

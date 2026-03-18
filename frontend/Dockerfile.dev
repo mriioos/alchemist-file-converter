@@ -1,0 +1,9 @@
+FROM node:22-slim
+
+WORKDIR /app
+COPY package*.json ./
+
+# node_modules is mounted as a host volume — install at container start so
+# packages land in the mounted directory, not a shadowed image layer
+EXPOSE 4321
+CMD ["sh", "-c", "[ ! -d node_modules/.bin ] && npm ci; npm run dev -- --host 0.0.0.0"]

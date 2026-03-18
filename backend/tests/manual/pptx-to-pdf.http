@@ -1,0 +1,16 @@
+### Upload PPTX → PDF
+POST http://localhost:8000/convert/pptx-to-pdf
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.pptx"
+Content-Type: application/vnd.openxmlformats-officedocument.presentationml.presentation
+
+< ../fixtures/sample.pptx
+--boundary--
+
+### Poll task status
+GET http://localhost:8000/tasks/{{task_id}}
+
+### Download result
+GET http://localhost:8000/tasks/{{task_id}}/download
