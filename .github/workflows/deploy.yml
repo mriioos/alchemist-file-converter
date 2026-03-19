@@ -160,6 +160,7 @@ jobs:
 
             # Deploy the new image using Docker Compose
             docker compose -f docker-compose.prod.yml --env-file .env.config.prod --env-file .env.credentials pull
+            docker compose -f docker-compose.prod.yml --env-file .env.config.prod --env-file .env.credentials down
             docker compose -f docker-compose.prod.yml --env-file .env.config.prod --env-file .env.credentials up -d
 
             # Clean up dangling images to free up space on the server
