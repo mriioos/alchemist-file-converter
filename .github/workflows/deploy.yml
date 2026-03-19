@@ -105,7 +105,7 @@ jobs:
           port: ${{ secrets.PROD_SERVER_PORT }}
           username: ${{ secrets.PROD_SERVER_USER }}
           key: ${{ secrets.PROD_SERVER_KEY }}
-          source: "nginx.config.prod"
+          source: "nginx.prod.conf"
           target: ${{ secrets.PROD_SERVER_PATH }}/volume_mounts/nginx
 
       # 3. Sync frontend files
