@@ -134,6 +134,7 @@ jobs:
           key: ${{ secrets.PROD_SERVER_KEY }}
           source: "frontend/dist/*"
           target: ${{ secrets.PROD_SERVER_PATH }}/volume_mounts/frontend/dist
+          strip_components: 2
         
   deploy:
 
