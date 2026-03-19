@@ -9,7 +9,6 @@ on:
   workflow_dispatch:
 
 env:
-  FRONTEND_IMAGE_NAME: file-converter/web
   BACKEND_IMAGE_NAME: file-converter/api
 
 jobs:
@@ -57,13 +56,111 @@ jobs:
             ${{ secrets.REGISTRY_HOST }}/${{ env.BACKEND_IMAGE_NAME }}:latest
             ${{ secrets.REGISTRY_HOST }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
 
-      # 6. Build and push frontend Docker image
-      - name: Build and push file-converter/web (frontend) image
-        uses: docker/build-push-action@v5
+      # 6. Build Astro frontend
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          context: ./frontend
-          file: ./frontend/Dockerfile.prod
-          push: true
-          tags: |
-            ${{ secrets.REGISTRY_HOST }}/${{ env.FRONTEND_IMAGE_NAME }}:latest
-            ${{ secrets.REGISTRY_HOST }}/${{ env.FRONTEND_IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+          node-version: '22'
+
+      - name: Build Astro frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload frontend dist to temporary artifact store
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  sync:
+
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 0. Checkout repo
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 1. Sync production environment and docker compose
+      - name: Sync production environment config using SCP
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          port: ${{ secrets.PROD_SERVER_PORT }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_KEY }}
+          source: ".env.config.prod,docker-compose.prod.yml"
+          target: ${{ secrets.PROD_SERVER_PATH }}
+
+      # 2. Sync nginx configuration
+      - name: Sync nginx config using SCP
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          port: ${{ secrets.PROD_SERVER_PORT }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_KEY }}
+          source: "nginx.config.prod"
+          target: ${{ secrets.PROD_SERVER_PATH }}/volume_mounts/nginx
+
+      # 3. Sync frontend files
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      
+      - name: Prepare server directories
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          port: ${{ secrets.PROD_SERVER_PORT }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_KEY }}
+          script: |
+            mkdir -p ${{ secrets.PROD_SERVER_PATH }}/volume_mounts/frontend/dist
+
+      - name: Sync frontend artifact using SCP
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          port: ${{ secrets.PROD_SERVER_PORT }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_KEY }}
+          source: "frontend/dist/*"
+          target: ${{ secrets.PROD_SERVER_PATH }}/volume_mounts/frontend/dist
+        
+  deploy:
+
+    needs: [build, sync]
+
+    runs-on: ubuntu-latest
+
+    steps:
+  
+      # 1. SSH and deploy using Docker Compose
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          port: ${{ secrets.PROD_SERVER_PORT }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_KEY }}
+          script: |
+            set -e -o pipefail
+            cd ${{ secrets.PROD_SERVER_PATH }}
+
+            # Log in to the registry from the server to ensure docker compose can pull the new images
+            echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ secrets.REGISTRY_HOST }} -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+
+            # Deploy the new image using Docker Compose
+            docker compose -f docker-compose.prod.yml --env-file .env.config.prod --env-file .env.credentials pull
+            docker compose -f docker-compose.prod.yml --env-file .env.config.prod --env-file .env.credentials up -d
+
+            # Clean up dangling images to free up space on the server
+            docker image prune -af

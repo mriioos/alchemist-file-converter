@@ -1,0 +1,100 @@
+# All external traffic reaches nginx through Cloudflare Tunnel, which
+# terminates TLS. The browser always sees HTTPS, so we hardcode the scheme.
+map $uri $real_scheme {
+    default https;
+}
+
+upstream backend {
+    server backend:8000;
+}
+
+upstream authelia {
+    server authelia:9091;
+}
+
+server {
+    listen 80;
+    client_max_body_size  100m;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    # ── Authelia portal ───────────────────────────────────────────────────────
+    # No trailing slash on proxy_pass — preserves the /authelia/ prefix, which
+    # Authelia expects because server.address includes the /authelia path.
+    location /authelia/ {
+        proxy_pass         http://authelia;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto  $real_scheme;
+        proxy_set_header   X-Forwarded-Host   $http_host;
+        proxy_set_header   X-Forwarded-URI    $request_uri;
+    }
+
+    # ── Internal auth check (never called by clients directly) ───────────────
+    location /internal/authelia/authz {
+        internal;
+        proxy_pass         http://authelia/authelia/api/authz/auth-request;
+        proxy_pass_request_body off;
+        proxy_set_header   Content-Length       "";
+        proxy_set_header   X-Original-URL       $real_scheme://$http_host$request_uri;
+        proxy_set_header   X-Original-Method    $request_method;
+        proxy_set_header   X-Forwarded-Proto    $real_scheme;
+        proxy_set_header   X-Forwarded-Host     $http_host;
+        proxy_set_header   X-Forwarded-URI      $request_uri;
+        proxy_set_header   X-Forwarded-For      $proxy_add_x_forwarded_for;
+    }
+
+    # ── Protected: API ────────────────────────────────────────────────────────
+    location /api/ {
+        auth_request     /internal/authelia/authz;
+        error_page 401 =302 @authelia_redirect;
+
+        # Strip /api prefix before forwarding to backend
+        proxy_pass         http://backend/;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto  $real_scheme;
+
+        # Must exceed the longest conversion timeout (LibreOffice/GS = 120 s)
+        proxy_read_timeout    180s;
+        proxy_send_timeout    180s;
+        proxy_connect_timeout  10s;
+
+        client_max_body_size  100m;
+
+        # Required for clean streaming of converted file downloads
+        proxy_buffering off;
+    }
+
+    # ── Hashed static assets — auth skipped intentionally ────────────────────
+    # Files under /_astro/ have content-addressed names (e.g. index.ABC123.js).
+    # Without the protected HTML you cannot discover these URLs, so skipping
+    # auth_request here avoids one round-trip per asset and prevents redirect
+    # loops if the browser fetches an asset while the auth cookie is missing.
+    location /_astro/ {
+        expires    1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # ── Protected: frontend ───────────────────────────────────────────────────
+    location / {
+        auth_request     /internal/authelia/authz;
+        error_page 401 =302 @authelia_redirect;
+
+        try_files $uri $uri/ =404;
+    }
+
+    # Shared redirect target — sends unauthenticated users to the Authelia login
+    # page, passing the original URL so Authelia can redirect back after login.
+    location @authelia_redirect {
+        return 302 /authelia/?rd=$real_scheme://$http_host$request_uri;
+    }
+
+    # ── Compression ───────────────────────────────────────────────────────────
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+}
