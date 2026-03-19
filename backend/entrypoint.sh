@@ -1,10 +1,13 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
 echo "Installing runtime dependencies..."
-apk add --no-cache \
-    libreoffice \
-    poppler-utils \
-    ghostscript
+apt-get update && apt-get install -y --no-install-recommends \
+    libreoffice-writer libreoffice-calc libreoffice-impress \
+    poppler-utils ghostscript \
+    fonts-liberation \
+    fonts-dejavu \
+    fonts-noto \
+    && rm -rf /var/lib/apt/lists/*
 
 exec "$@"
