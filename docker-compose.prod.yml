@@ -29,7 +29,7 @@ services:
   # Reachable only from nginx via backend_net. Cannot reach authelia.
   backend:
     container_name: 'file-converter-backend'
-    image: file-converter/api
+    image: ${DOCKER_REGISTRY}/file-converter/api:latest
     expose:
       - "8000"
     volumes:
