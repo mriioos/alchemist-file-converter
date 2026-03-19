@@ -1,0 +1,16 @@
+### Upload PNG → PDF
+POST http://localhost:8000/convert/png-to-pdf
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.png"
+Content-Type: image/png
+
+< ../fixtures/sample.png
+--boundary--
+
+### Poll task status
+GET http://localhost:8000/tasks/{{task_id}}
+
+### Download result
+GET http://localhost:8000/tasks/{{task_id}}/download

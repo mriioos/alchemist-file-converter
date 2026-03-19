@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --color-zinc-850: #1e1e24;
+  --color-status-pending: #71717a;
+  --color-status-processing: #f59e0b;
+  --color-status-completed: #22c55e;
+  --color-status-failed: #ef4444;
+  --radius-DEFAULT: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+}
+
+/* Smooth transitions on all interactive elements */
+*, *::before, *::after {
+  transition-property: color, background-color, border-color, opacity, transform, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #18181b;
+}
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+/* File input hidden */
+#file-input {
+  display: none;
+}
+
+/* Status border colors */
+.status-pending  { border-left-color: var(--color-status-pending); }
+.status-processing { border-left-color: var(--color-status-processing); }
+.status-completed { border-left-color: var(--color-status-completed); }
+.status-failed   { border-left-color: var(--color-status-failed); }
+
+/* Spinner animation */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+
+/* Drop zone drag-over state */
+#drop-zone.drag-over {
+  border-color: #6366f1;
+  background-color: rgba(99, 102, 241, 0.05);
+}

@@ -1,0 +1,16 @@
+### Upload JPG → PDF
+POST http://localhost:8000/convert/jpg-to-pdf
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.jpg"
+Content-Type: image/jpeg
+
+< ../fixtures/sample.jpg
+--boundary--
+
+### Poll task status (replace TASK_ID)
+GET http://localhost:8000/tasks/{{task_id}}
+
+### Download result (replace TASK_ID)
+GET http://localhost:8000/tasks/{{task_id}}/download

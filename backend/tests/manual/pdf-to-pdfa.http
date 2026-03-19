@@ -1,0 +1,38 @@
+### Upload PDF → PDF/A (default: version 2b)
+POST http://localhost:8000/convert/pdf-to-pdfa
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.pdf"
+Content-Type: application/pdf
+
+< ../fixtures/sample.pdf
+--boundary--
+
+### Upload PDF → PDF/A-1b
+POST http://localhost:8000/convert/pdf-to-pdfa?pdfa_version=1b
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.pdf"
+Content-Type: application/pdf
+
+< ../fixtures/sample.pdf
+--boundary--
+
+### Upload PDF → PDF/A-3b
+POST http://localhost:8000/convert/pdf-to-pdfa?pdfa_version=3b
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.pdf"
+Content-Type: application/pdf
+
+< ../fixtures/sample.pdf
+--boundary--
+
+### Poll task status
+GET http://localhost:8000/tasks/{{task_id}}
+
+### Download result
+GET http://localhost:8000/tasks/{{task_id}}/download

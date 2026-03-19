@@ -1,0 +1,16 @@
+### Upload HTML → PDF
+POST http://localhost:8000/convert/html-to-pdf
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.html"
+Content-Type: text/html
+
+< ../fixtures/sample.html
+--boundary--
+
+### Poll task status
+GET http://localhost:8000/tasks/5942609e0dc5407386775db4a330d9dc
+
+### Download result
+GET http://localhost:8000/tasks/5942609e0dc5407386775db4a330d9dc/download

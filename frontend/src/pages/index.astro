@@ -1,0 +1,601 @@
+---
+import Layout from '../layouts/Layout.astro';
+import '../styles/global.css';
+---
+
+<Layout title="File Converter">
+  <div class="max-w-3xl mx-auto px-4 py-12">
+
+    <!-- Header -->
+    <header class="mb-10 text-center">
+      <h1 class="text-3xl font-semibold text-zinc-100 mb-2 tracking-tight">File Converter</h1>
+      <p class="text-zinc-400 text-sm">Convert documents, images and PDFs — all processing happens on the server.</p>
+    </header>
+
+    <!-- Drop Zone -->
+    <div
+      id="drop-zone"
+      class="border-2 border-dashed border-zinc-700 rounded-xl p-12 text-center cursor-pointer hover:border-zinc-500 hover:bg-zinc-900/50 mb-4"
+    >
+      <div class="flex flex-col items-center gap-3 pointer-events-none select-none">
+        <svg class="w-10 h-10 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+        </svg>
+        <div>
+          <p class="text-zinc-300 font-medium">Drop files here or <span class="text-indigo-400">browse</span></p>
+          <p class="text-zinc-500 text-sm mt-1">PDF, DOCX, PPTX, XLSX, HTML, JPG, PNG</p>
+        </div>
+      </div>
+      <input type="file" id="file-input" multiple accept=".pdf,.docx,.pptx,.xlsx,.html,.htm,.jpg,.jpeg,.png" />
+    </div>
+
+    <!-- Global Controls (hidden until files added) -->
+    <div id="global-controls" class="hidden mb-4 flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
+      <span class="text-zinc-400 text-sm whitespace-nowrap">Convert all to:</span>
+      <select id="global-format" class="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500 min-w-0">
+      </select>
+      <button
+        id="convert-all-btn"
+        class="shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-1.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-zinc-900"
+      >
+        Convert all
+      </button>
+      <button
+        id="clear-all-btn"
+        class="shrink-0 text-zinc-500 hover:text-zinc-300 text-sm px-2 py-1.5 rounded-lg"
+        title="Clear all files"
+      >
+        Clear all
+      </button>
+    </div>
+
+    <!-- File List -->
+    <div id="file-list" class="flex flex-col gap-2"></div>
+
+    <!-- Empty state (shown when list is empty after files were added) -->
+    <div id="empty-hint" class="hidden text-center text-zinc-600 text-sm py-6">
+      All files processed. Drop more files to continue.
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <footer class="text-center text-zinc-700 text-xs pb-8">
+    Self-hosted · Files are deleted automatically after 15 minutes
+  </footer>
+</Layout>
+
+<script>
+// ─── Config ─────────────────────────────────────────────────────────────────
+// If PUBLIC_API_BASE is set (e.g. /api for Traefik in M4, or explicit URL for dev),
+// use it directly. Otherwise fall back to same host on port 8000, which works
+// for direct deployments (Milestone 3) without a reverse proxy.
+const API_BASE = (() => {
+  const configured = import.meta.env.PUBLIC_API_BASE;
+  if (configured) return configured.replace(/\/$/, '');
+  return `${window.location.protocol}//${window.location.hostname}:8000`;
+})();
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+type TaskStatus = 'idle' | 'pending' | 'processing' | 'completed' | 'failed';
+
+interface ConverterInfo {
+  conversion_type: string;
+  source_format: string;
+  target_format: string;
+  source_mime_types: string[];
+  engine: string;
+  options?: Record<string, unknown>;
+}
+
+interface FileEntry {
+  id: string;
+  file: File;
+  sourceExt: string;
+  availableConversions: ConverterInfo[];
+  selectedConversionType: string;
+  status: TaskStatus;
+  taskId: string | null;
+  outputFilename: string | null;
+  error: string | null;
+  pollInterval: ReturnType<typeof setInterval> | null;
+  optionsExpanded: boolean;
+  options: Record<string, string>;
+}
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let converters: ConverterInfo[] = [];
+// Map: source_format -> ConverterInfo[]
+const converterMap = new Map<string, ConverterInfo[]>();
+const fileList: FileEntry[] = [];
+
+// ─── API ─────────────────────────────────────────────────────────────────────
+async function fetchConverters(): Promise<ConverterInfo[]> {
+  const res = await fetch(`${API_BASE}/converters`);
+  if (!res.ok) throw new Error('Failed to load converters');
+  return res.json();
+}
+
+async function uploadFile(entry: FileEntry): Promise<string> {
+  const conv = converters.find(c => c.conversion_type === entry.selectedConversionType);
+  if (!conv) throw new Error('Converter not found');
+
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(entry.options)) {
+    if (v !== '') params.set(k, v);
+  }
+  const url = `${API_BASE}/convert/${entry.selectedConversionType}${params.size ? '?' + params : ''}`;
+
+  const form = new FormData();
+  form.append('file', entry.file, entry.file.name);
+
+  const res = await fetch(url, { method: 'POST', body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Upload failed (${res.status})`);
+  }
+  const data = await res.json();
+  return data.task_id as string;
+}
+
+async function pollTask(taskId: string): Promise<{ status: string; output_filename: string | null; error: string | null }> {
+  const res = await fetch(`${API_BASE}/tasks/${taskId}`);
+  if (!res.ok) throw new Error(`Poll failed (${res.status})`);
+  return res.json();
+}
+
+function downloadTask(taskId: string, filename: string): void {
+  fetch(`${API_BASE}/tasks/${taskId}/download`)
+    .then(res => {
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      return res.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    })
+    .catch(err => console.error('Download error:', err));
+}
+
+// ─── State Helpers ────────────────────────────────────────────────────────────
+function getExtension(filename: string): string {
+  const parts = filename.toLowerCase().split('.');
+  return parts.length > 1 ? parts[parts.length - 1] : '';
+}
+
+function makeId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function getEntry(id: string): FileEntry | undefined {
+  return fileList.find(e => e.id === id);
+}
+
+function addFiles(files: File[]): void {
+  for (const file of files) {
+    const ext = getExtension(file.name);
+    const available = converterMap.get(ext) ?? [];
+    const entry: FileEntry = {
+      id: makeId(),
+      file,
+      sourceExt: ext,
+      availableConversions: available,
+      selectedConversionType: available[0]?.conversion_type ?? '',
+      status: available.length === 0 ? 'failed' : 'idle',
+      taskId: null,
+      outputFilename: null,
+      error: available.length === 0 ? 'Unsupported file type' : null,
+      pollInterval: null,
+      optionsExpanded: false,
+      options: {},
+    };
+    fileList.push(entry);
+  }
+  render();
+}
+
+async function startConversion(id: string): Promise<void> {
+  const entry = getEntry(id);
+  if (!entry || entry.status !== 'idle') return;
+
+  entry.status = 'pending';
+  renderEntry(id);
+
+  try {
+    const taskId = await uploadFile(entry);
+    entry.taskId = taskId;
+    entry.status = 'pending';
+    renderEntry(id);
+
+    let polls = 0;
+    entry.pollInterval = setInterval(async () => {
+      polls++;
+      if (polls > 120) {
+        clearInterval(entry.pollInterval!);
+        entry.status = 'failed';
+        entry.error = 'Conversion timed out';
+        renderEntry(id);
+        return;
+      }
+      try {
+        const task = await pollTask(taskId);
+        if (task.status === 'processing') {
+          entry.status = 'processing';
+          renderEntry(id);
+        } else if (task.status === 'completed') {
+          clearInterval(entry.pollInterval!);
+          entry.status = 'completed';
+          entry.outputFilename = task.output_filename;
+          renderEntry(id);
+        } else if (task.status === 'failed') {
+          clearInterval(entry.pollInterval!);
+          entry.status = 'failed';
+          entry.error = task.error ?? 'Conversion failed';
+          renderEntry(id);
+        }
+      } catch (err) {
+        // Network error during poll — keep trying
+      }
+    }, 1000);
+  } catch (err) {
+    entry.status = 'failed';
+    entry.error = (err as Error).message;
+    renderEntry(id);
+  }
+}
+
+function removeEntry(id: string): void {
+  const idx = fileList.findIndex(e => e.id === id);
+  if (idx === -1) return;
+  const entry = fileList[idx];
+  if (entry.pollInterval) clearInterval(entry.pollInterval);
+  fileList.splice(idx, 1);
+  render();
+}
+
+function retryEntry(id: string): void {
+  const entry = getEntry(id);
+  if (!entry) return;
+  entry.status = 'idle';
+  entry.taskId = null;
+  entry.outputFilename = null;
+  entry.error = null;
+  entry.pollInterval = null;
+  renderEntry(id);
+  startConversion(id);
+}
+
+function setEntryConversionType(id: string, convType: string): void {
+  const entry = getEntry(id);
+  if (!entry) return;
+  entry.selectedConversionType = convType;
+  entry.options = {};
+  entry.optionsExpanded = false;
+  renderEntry(id);
+}
+
+function toggleOptions(id: string): void {
+  const entry = getEntry(id);
+  if (!entry) return;
+  entry.optionsExpanded = !entry.optionsExpanded;
+  renderEntry(id);
+}
+
+function setOption(id: string, key: string, value: string): void {
+  const entry = getEntry(id);
+  if (!entry) return;
+  entry.options[key] = value;
+}
+
+// ─── Rendering ────────────────────────────────────────────────────────────────
+
+const FILE_LIST_EL = () => document.getElementById('file-list')!;
+const GLOBAL_CONTROLS_EL = () => document.getElementById('global-controls')!;
+const GLOBAL_FORMAT_EL = () => document.getElementById('global-format') as HTMLSelectElement;
+const EMPTY_HINT_EL = () => document.getElementById('empty-hint')!;
+
+function render(): void {
+  const container = FILE_LIST_EL();
+  // Sync: remove rows for entries no longer in list
+  const existingIds = new Set(Array.from(container.children).map(el => (el as HTMLElement).dataset.id));
+  const currentIds = new Set(fileList.map(e => e.id));
+
+  // Remove stale rows
+  for (const child of Array.from(container.children)) {
+    if (!currentIds.has((child as HTMLElement).dataset.id!)) child.remove();
+  }
+
+  // Add or update rows in order
+  for (let i = 0; i < fileList.length; i++) {
+    const entry = fileList[i];
+    const existing = container.querySelector(`[data-id="${entry.id}"]`);
+    if (existing) {
+      // Already rendered, just update
+      updateEntryEl(existing as HTMLElement, entry);
+    } else {
+      // Insert new row at correct position
+      const newEl = buildEntryEl(entry);
+      const refChild = container.children[i] ?? null;
+      container.insertBefore(newEl, refChild);
+    }
+  }
+
+  updateGlobalControls();
+
+  EMPTY_HINT_EL().classList.toggle(
+    'hidden',
+    fileList.length === 0,
+  );
+  // Only show empty hint if we had files before (don't show on very first load)
+  if (fileList.length > 0) {
+    EMPTY_HINT_EL().classList.add('hidden');
+  }
+}
+
+function renderEntry(id: string): void {
+  const entry = getEntry(id);
+  if (!entry) return;
+  const el = FILE_LIST_EL().querySelector(`[data-id="${id}"]`);
+  if (el) {
+    updateEntryEl(el as HTMLElement, entry);
+  }
+}
+
+function getConverterForEntry(entry: FileEntry): ConverterInfo | undefined {
+  return converters.find(c => c.conversion_type === entry.selectedConversionType);
+}
+
+function buildOptionsFields(entry: FileEntry): string {
+  const conv = getConverterForEntry(entry);
+  if (!conv?.options?.properties) return '';
+
+  const props = conv.options.properties as Record<string, { type?: string; description?: string; default?: unknown; enum?: string[]; minimum?: number; maximum?: number }>;
+  const fields = Object.entries(props).map(([key, schema]) => {
+    const currentVal = entry.options[key] ?? String(schema.default ?? '');
+    if (schema.enum) {
+      const opts = schema.enum.map((v: string) =>
+        `<option value="${v}" ${currentVal === v ? 'selected' : ''}>${v}</option>`
+      ).join('');
+      return `
+        <div class="flex items-center gap-2">
+          <label class="text-zinc-400 text-xs w-24 shrink-0">${key}</label>
+          <select
+            data-option-key="${key}"
+            class="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
+          >${opts}</select>
+        </div>`;
+    }
+    return `
+      <div class="flex items-center gap-2">
+        <label class="text-zinc-400 text-xs w-24 shrink-0">${key}${schema.minimum != null ? ` (${schema.minimum}–${schema.maximum})` : ''}</label>
+        <input
+          type="number"
+          data-option-key="${key}"
+          value="${currentVal}"
+          min="${schema.minimum ?? ''}"
+          max="${schema.maximum ?? ''}"
+          class="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
+        />
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="mt-2 pt-2 border-t border-zinc-800 flex flex-wrap gap-x-6 gap-y-2">
+      ${fields}
+    </div>`;
+}
+
+function buildEntryEl(entry: FileEntry): HTMLElement {
+  const el = document.createElement('div');
+  el.dataset.id = entry.id;
+  updateEntryEl(el, entry);
+  return el;
+}
+
+function updateEntryEl(el: HTMLElement, entry: FileEntry): void {
+  const statusClass = entry.status === 'idle' ? '' : `status-${entry.status}`;
+  const borderStyle = entry.status === 'idle' ? 'border-l-zinc-800' : '';
+
+  const fileIcon = getFileIcon(entry.sourceExt);
+  const formatDropdown = entry.availableConversions.length > 1
+    ? `<select data-action="set-type" class="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 ${entry.status !== 'idle' ? 'opacity-50 pointer-events-none' : ''}">
+        ${entry.availableConversions.map(c =>
+          `<option value="${c.conversion_type}" ${c.conversion_type === entry.selectedConversionType ? 'selected' : ''}>${c.target_format.toUpperCase()}</option>`
+        ).join('')}
+       </select>`
+    : entry.availableConversions.length === 1
+      ? `<span class="text-zinc-400 text-xs px-2">${entry.availableConversions[0].target_format.toUpperCase()}</span>`
+      : '';
+
+  const hasOptions = !!getConverterForEntry(entry)?.options?.properties;
+  const optionsToggle = hasOptions && entry.status === 'idle'
+    ? `<button data-action="toggle-options" class="text-zinc-500 hover:text-zinc-300 text-xs underline underline-offset-2">
+        ${entry.optionsExpanded ? 'Hide options' : 'Options'}
+       </button>`
+    : '';
+
+  const controls = buildControls(entry);
+  const optionsFields = entry.optionsExpanded ? buildOptionsFields(entry) : '';
+
+  el.className = `bg-zinc-900 border border-zinc-800 border-l-4 ${statusClass} ${borderStyle} rounded-xl px-4 py-3`;
+
+  el.innerHTML = `
+    <div class="flex items-center gap-3 min-w-0">
+      <span class="text-lg shrink-0">${fileIcon}</span>
+      <span class="text-sm text-zinc-200 truncate flex-1 min-w-0" title="${entry.file.name}">${entry.file.name}</span>
+      <span class="text-xs text-zinc-600 shrink-0">${formatFileSize(entry.file.size)}</span>
+      ${formatDropdown}
+      ${optionsToggle}
+      ${controls}
+    </div>
+    ${optionsFields}
+  `;
+
+  attachEntryListeners(el, entry.id);
+}
+
+function buildControls(entry: FileEntry): string {
+  const removeBtn = `<button data-action="remove" class="text-zinc-600 hover:text-zinc-400 p-1 rounded-lg" title="Remove">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+  </button>`;
+
+  switch (entry.status) {
+    case 'idle':
+      return entry.availableConversions.length > 0
+        ? `<button data-action="convert" class="shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg">Convert</button>${removeBtn}`
+        : removeBtn;
+
+    case 'pending':
+      return `<span class="text-zinc-500 text-xs flex items-center gap-1.5"><span class="spinner"></span>Pending</span>${removeBtn}`;
+
+    case 'processing':
+      return `<span class="text-amber-400 text-xs flex items-center gap-1.5"><span class="spinner"></span>Processing…</span>${removeBtn}`;
+
+    case 'completed':
+      return `<button data-action="download" class="shrink-0 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg">Download</button>${removeBtn}`;
+
+    case 'failed':
+      return `<span class="text-red-400 text-xs" title="${entry.error ?? ''}">Failed</span>
+        <button data-action="retry" class="shrink-0 text-zinc-400 hover:text-zinc-200 text-xs border border-zinc-700 hover:border-zinc-500 px-3 py-1.5 rounded-lg">Retry</button>${removeBtn}`;
+
+    default:
+      return removeBtn;
+  }
+}
+
+function attachEntryListeners(el: HTMLElement, id: string): void {
+  el.querySelector('[data-action="convert"]')?.addEventListener('click', () => startConversion(id));
+  el.querySelector('[data-action="remove"]')?.addEventListener('click', () => removeEntry(id));
+  el.querySelector('[data-action="download"]')?.addEventListener('click', () => {
+    const entry = getEntry(id);
+    if (entry?.taskId && entry.outputFilename) downloadTask(entry.taskId, entry.outputFilename);
+  });
+  el.querySelector('[data-action="retry"]')?.addEventListener('click', () => retryEntry(id));
+  el.querySelector('[data-action="set-type"]')?.addEventListener('change', (e) => {
+    setEntryConversionType(id, (e.target as HTMLSelectElement).value);
+  });
+  el.querySelector('[data-action="toggle-options"]')?.addEventListener('click', () => toggleOptions(id));
+
+  // Options fields
+  el.querySelectorAll('[data-option-key]').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const key = (e.target as HTMLElement).dataset.optionKey!;
+      const value = (e.target as HTMLInputElement | HTMLSelectElement).value;
+      setOption(id, key, value);
+    });
+  });
+}
+
+function updateGlobalControls(): void {
+  const gc = GLOBAL_CONTROLS_EL();
+  const hasFiles = fileList.length > 0;
+  gc.classList.toggle('hidden', !hasFiles);
+  if (!hasFiles) return;
+
+  // Gather all unique target formats across idle files
+  const idleEntries = fileList.filter(e => e.status === 'idle' && e.availableConversions.length > 0);
+  const allTargets = [...new Set(
+    idleEntries.flatMap(e => e.availableConversions.map(c => c.target_format))
+  )].sort();
+
+  const sel = GLOBAL_FORMAT_EL();
+  const currentVal = sel.value;
+  sel.innerHTML = allTargets.length === 0
+    ? '<option value="">No idle files</option>'
+    : allTargets.map(t => `<option value="${t}" ${t === currentVal ? 'selected' : ''}>${t.toUpperCase()}</option>`).join('');
+
+  const convertAllBtn = document.getElementById('convert-all-btn')!;
+  convertAllBtn.toggleAttribute('disabled', idleEntries.length === 0);
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function getFileIcon(ext: string): string {
+  const icons: Record<string, string> = {
+    pdf: '📄', docx: '📝', pptx: '📊', xlsx: '📗',
+    html: '🌐', htm: '🌐', jpg: '🖼️', jpeg: '🖼️', png: '🖼️',
+  };
+  return icons[ext] ?? '📎';
+}
+
+// ─── Initialisation ───────────────────────────────────────────────────────────
+async function init(): Promise<void> {
+  // Load converters
+  try {
+    converters = await fetchConverters();
+    for (const c of converters) {
+      const ext = c.source_format;
+      if (!converterMap.has(ext)) converterMap.set(ext, []);
+      converterMap.get(ext)!.push(c);
+    }
+    // Also map 'jpeg' -> same as 'jpg'
+    if (converterMap.has('jpg') && !converterMap.has('jpeg')) {
+      converterMap.set('jpeg', converterMap.get('jpg')!);
+    }
+    if (converterMap.has('html') && !converterMap.has('htm')) {
+      converterMap.set('htm', converterMap.get('html')!);
+    }
+  } catch (err) {
+    console.error('Failed to fetch converters:', err);
+  }
+
+  // Drop Zone
+  const dropZone = document.getElementById('drop-zone')!;
+  const fileInput = document.getElementById('file-input') as HTMLInputElement;
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', (e: DragEvent) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length) addFiles(files);
+  });
+  fileInput.addEventListener('change', () => {
+    const files = Array.from(fileInput.files ?? []);
+    if (files.length) {
+      addFiles(files);
+      fileInput.value = '';
+    }
+  });
+
+  // Global Controls
+  document.getElementById('convert-all-btn')!.addEventListener('click', () => {
+    const targetFormat = GLOBAL_FORMAT_EL().value;
+    for (const entry of fileList) {
+      if (entry.status !== 'idle') continue;
+      if (targetFormat) {
+        const match = entry.availableConversions.find(c => c.target_format === targetFormat);
+        if (match) entry.selectedConversionType = match.conversion_type;
+      }
+      startConversion(entry.id);
+    }
+  });
+
+  document.getElementById('clear-all-btn')!.addEventListener('click', () => {
+    for (const entry of [...fileList]) removeEntry(entry.id);
+    EMPTY_HINT_EL().classList.add('hidden');
+  });
+
+  render();
+}
+
+init();
+</script>

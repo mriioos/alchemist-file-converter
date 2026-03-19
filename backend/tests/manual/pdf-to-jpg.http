@@ -1,0 +1,38 @@
+### Upload PDF → JPG (default options: dpi=200, quality=85)
+POST http://localhost:8000/convert/pdf-to-jpg
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.pdf"
+Content-Type: application/pdf
+
+< ../fixtures/sample.pdf
+--boundary--
+
+### Upload PDF → JPG (custom: dpi=300, quality=100)
+POST http://localhost:8000/convert/pdf-to-jpg?dpi=300&quality=100
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.pdf"
+Content-Type: application/pdf
+
+< ../fixtures/sample.pdf
+--boundary--
+
+### Upload PDF → JPG (low quality: dpi=72, quality=50)
+POST http://localhost:8000/convert/pdf-to-jpg?dpi=72&quality=50
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.pdf"
+Content-Type: application/pdf
+
+< ../fixtures/sample.pdf
+--boundary--
+
+### Poll task status
+GET http://localhost:8000/tasks/{{task_id}}
+
+### Download result
+GET http://localhost:8000/tasks/{{task_id}}/download
