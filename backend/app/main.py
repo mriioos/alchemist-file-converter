@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await task_queue.stop()
 
 
-app = FastAPI(title="File Converter API", root_path=settings.ROOT_PATH, lifespan=lifespan)
+app = FastAPI(title="Alchemist File Converter API", root_path=settings.ROOT_PATH, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

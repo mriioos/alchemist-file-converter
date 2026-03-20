@@ -1,4 +1,4 @@
-name: Deploy File Converter
+name: Deploy Alchemist File Converter
 
 on:
 
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  BACKEND_IMAGE_NAME: file-converter/api
+  BACKEND_IMAGE_NAME: alchemist-file-converter/api
 
 jobs:
 
@@ -46,7 +46,7 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
       # 5. Build and push backend Docker image
-      - name: Build and push file-converter/api (backend) image
+      - name: Build and push alchemist-file-converter/api (backend) image
         uses: docker/build-push-action@v5
         with:
           context: ./backend

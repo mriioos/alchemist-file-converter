@@ -1,7 +1,7 @@
 services:
 
   backend:
-    container_name: 'file-converter-dev-backend'
+    container_name: 'alchemist-file-converter-dev-backend'
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    container_name: 'file-converter-dev-frontend'
+    container_name: 'alchemist-file-converter-dev-frontend'
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
