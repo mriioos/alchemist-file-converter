@@ -1,4 +1,4 @@
-# File Converter
+# Alchemist File Converter
 
 A self-hosted web application for converting documents, presentations, spreadsheets, and images between common formats. All processing happens server-side — files never leave your infrastructure.
 

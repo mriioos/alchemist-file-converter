@@ -3,7 +3,7 @@ services:
   # ── nginx — the ONLY service exposed to the host ──────────────────────────
   # Serves Astro static files, proxies /api/ → backend, handles auth via authelia.
   nginx:
-    container_name: 'file-converter-nginx'
+    container_name: 'alchemist-file-converter-nginx'
     image: nginx:alpine
     volumes:
       - ${FRONTEND_VOLUME}/dist:/usr/share/nginx/html:ro
@@ -28,8 +28,8 @@ services:
   # ── FastAPI backend — internal only ───────────────────────────────────────
   # Reachable only from nginx via backend_net. Cannot reach authelia.
   backend:
-    container_name: 'file-converter-backend'
-    image: ${DOCKER_REGISTRY}/file-converter/api:latest
+    container_name: 'alchemist-file-converter-backend'
+    image: ${DOCKER_REGISTRY}/alchemist-file-converter/api:latest
     expose:
       - "8000"
     volumes:
@@ -57,7 +57,7 @@ services:
   # Requires a tunnel token from Cloudflare Zero Trust dashboard.
   # The tunnel routes external HTTPS traffic to nginx:80 over the Docker network.
   cloudflared:
-    container_name: 'file-converter-cloudflared'
+    container_name: 'alchemist-file-converter-cloudflared'
     image: cloudflare/cloudflared:latest
     command: tunnel run
     environment:
@@ -77,7 +77,7 @@ services:
   # ── Authelia — internal only ───────────────────────────────────────────────
   # Reachable only from nginx via frontend_net. Cannot reach backend.
   authelia:
-    container_name: 'file-converter-authelia'
+    container_name: 'alchemist-file-converter-authelia'
     image: authelia/authelia:4.38
     expose:
       - "9091"

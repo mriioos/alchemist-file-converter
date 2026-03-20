@@ -11,7 +11,7 @@ from app.exceptions import ConversionError
 PDFA_DEF_PS = """
 [{
   /Title (converted)
-  /Author (File Converter)
+  /Author (Alchemist File Converter)
 } /DOCINFO pdfmark
 [{
   /Type /Catalog
